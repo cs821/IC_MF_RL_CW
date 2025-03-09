@@ -43,12 +43,12 @@ class Critic(nn.Module):
         q_ex2 = self.q_ex2_net(torch.cat([obs, act], dim=-1))
         
         # 计算风险调整的 Q 值
-        q = q_ex - self.ra_c * torch.sqrt(torch.clamp(q_ex2 - q_ex ** 2, min=0.0))
+        q = q_ex - self.ra_c * torch.sqrt(torch.clamp(q_ex2 - q_ex ** 2, min=1e-10))
         
         return q_ex, q_ex2, q
 
 class DDPG:
-    def __init__(self, obs_dim, act_dim, act_limit, buffer_size=int(2e6), gamma=0.99, tau=0.00001, alpha=0.6, max_t=500, device='cpu'):
+    def __init__(self, obs_dim, act_dim, act_limit, buffer_size=int(2e6), tau=0.00001, alpha=0.6, max_t=500, device='cpu'):
         
         self.device = device
         self.actor = Actor(obs_dim, act_dim, act_limit).to(device)
@@ -66,7 +66,6 @@ class DDPG:
         self.beta_schedule = LinearSchedule(config.prioritized_replay_beta_iters,
                                        initial_p=config.prioritized_replay_beta0,
                                        final_p=1.0)
-        self.gamma = gamma
         self.tau = tau
         # 初始化参数
         self.epsilon = 1.0  # 初始探索率
@@ -116,12 +115,19 @@ class DDPG:
             #target_critic_mean = target_q.mean()
             #target = reward + self.gamma * (1 - done) * target_q
             target_q_ex, target_q_ex2, _ = self.target_critic(next_obs, next_action)
-            target_q_ex = reward + self.gamma * (1 - done) * target_q_ex
+            target_q_ex = reward + (1 - done) * target_q_ex
             target_q_ex2 = reward ** 2 + (1 - done) * (2 * reward * target_q_ex + target_q_ex2)
 
         current_q_ex, current_q_ex2, _ = self.critic(obs, action)
         td_error_ex = target_q_ex - current_q_ex
         td_error_ex2 = target_q_ex2 - current_q_ex2
+        if torch.isnan(td_error_ex2).any():
+            print("NaN detected in td_error_ex2!")
+            print(f"target_q_ex2: {target_q_ex2}")
+            print(f"current_q_ex2: {current_q_ex2}")
+
+            print("current_q_ex2 mean:", current_q_ex2.mean().item())
+            print("target_q_ex2 mean:", target_q_ex2.mean().item())
 
         loss_ex = (weights * td_error_ex.pow(2)).mean()
         loss_ex2 = (weights * td_error_ex2.pow(2)).mean()
@@ -134,7 +140,9 @@ class DDPG:
 
         #priorities = (td_error.abs()).cpu().detach().numpy().flatten()
         #self.replay_buffer.update_priorities(idxes, priorities)
-        priorities = np.abs(td_error_ex2.cpu().detach().numpy().flatten()) + 1e-6
+        priorities = np.maximum(np.abs(td_error_ex2.cpu().detach().numpy().flatten())+1e-6, 1e-6)
+        if np.min(priorities)<=0:
+            print("Priorities before updating:", priorities)
         self.replay_buffer.update_priorities(idxes, priorities)
 
         actor_loss = -self.critic(obs, self.actor(obs))[2].mean()#用q

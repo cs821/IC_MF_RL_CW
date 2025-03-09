@@ -41,7 +41,7 @@ env.seed(config.ddpg_seed)
 # 选择算法
 if config.algo == "ddpg":
     agent = DDPG(env.observation_space.shape[0], env.action_space.shape[0], env.action_space.high[0], 
-                 config.ddpg_buffer_size, config.ddpg_gamma, config.ddpg_tau, config.ddpg_alpha,
+                 config.ddpg_buffer_size, config.ddpg_tau, config.ddpg_alpha,
                  max_t=config.ddpg_epsilon_decay_steps,device=config.device)
 elif config.algo == "qlearning":
     agent = QLearning(env, config)
