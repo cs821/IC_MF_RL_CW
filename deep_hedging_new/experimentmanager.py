@@ -3,6 +3,8 @@ import time
 import json
 import torch
 import pandas as pd
+from matplotlib import pyplot as plt
+
 
 class ExperimentManager:
     def __init__(self, config):
@@ -38,3 +40,15 @@ class ExperimentManager:
         torch.save(model, path)
         print(f"检查点已保存：{path}")
 
+    def save_image(self,history):
+        train_data = pd.DataFrame(history)
+        for column in train_data.columns[1:]:
+            save_path = f"{self.exp_dir}/plot_{column}.pdf"
+            plt.figure(figsize=(8, 5))
+            plt.plot(train_data['episode'], train_data[column], marker='o', linestyle='-')
+            plt.xlabel('Episode')
+            plt.ylabel(column)
+            plt.title(f'Episode vs {column}')
+            plt.grid(True)
+            plt.savefig(save_path)
+            plt.close()  # 关闭图像，防止多个图重叠

@@ -36,7 +36,7 @@ else:
 # 训练超参数
 global_step = 0
 exp_manager = ExperimentManager(config)
-history = {"episode": [], "episode_w_T": [], "loss_ex": [], "loss_ex2": []}
+history = {"episode": [], "episode_w_T": [], "loss_ex": [], "loss_ex2": [], "critic_loss":[], "actor_grad_norm":[],"critic_grad_norm":[],"actor_loss":[]}
 w_T_store = []
 
 print("\n\n*** 开始训练 ***")
@@ -56,9 +56,9 @@ for episode in range(config.ddpg_num_episodes):
         else:
             agent.replay_buffer.add(obs, action, reward, next_obs, done)
             if len(agent.replay_buffer) > config.ddpg_batch_size:
-                loss_ex, loss_ex2 = agent.update(config.ddpg_batch_size, global_step)
+                loss_ex, loss_ex2,critic_loss, total_actor_grad_norm, total_critic_grad_norm, actor_loss  = agent.update(config.ddpg_batch_size, global_step)
             else:
-                loss_ex, loss_ex2 = 0.0, 0.0  # 经验池不足时，loss 设为 0
+                loss_ex, loss_ex2,critic_loss, total_actor_grad_norm, total_critic_grad_norm, actor_loss= 0.0, 0.0,0.0,0.0,0.0,0.0  # 经验池不足时，loss 设为 0
 
         obs = next_obs
         episode_reward += reward
@@ -68,14 +68,17 @@ for episode in range(config.ddpg_num_episodes):
         global_step += 1
 
     # 计算财富
-    w_T = sum(reward_store).item()
-    w_T_store.append(w_T)
+    w_T_store.append(episode_reward)
 
     # 记录训练历史
     history["episode"].append(episode)
-    history["episode_w_T"].append(w_T)
+    history["episode_w_T"].append(episode_reward)
     history["loss_ex"].append(loss_ex)
     history["loss_ex2"].append(loss_ex2)
+    history["critic_loss"].append(critic_loss)
+    history["actor_grad_norm"].append(total_actor_grad_norm)
+    history["critic_grad_norm"].append(total_critic_grad_norm)
+    history["actor_loss"].append(actor_loss)
 
     # **每 1000 轮保存一次***每 1000 轮保存一次**
     if episode % 1000 == 0:
@@ -87,8 +90,8 @@ for episode in range(config.ddpg_num_episodes):
     path_row = info["path_row"]
     print(info)
     print(
-        "episode: {} | episode final wealth: {:.3f} | loss_ex: {:.3f} | loss_ex2: {:.3f} | epsilon:{:.2f}".format(
-            episode, w_T, loss_ex, loss_ex2, getattr(agent, "epsilon", 0)
+        "episode: {} | episode final wealth: {:.3f} | loss_ex: {:.3f} | loss_ex2: {:.3f} |critic_loss: {:.3f} |actor_grad_norm: {:.3f} | critic_grad_norm: {:.3f} | actor_loss: {:.3f} |  epsilon:{:.2f}".format(
+            episode, episode_reward, loss_ex, loss_ex2,critic_loss, total_actor_grad_norm, total_critic_grad_norm, actor_loss, getattr(agent, "epsilon", 0)
         )
     )
 
@@ -105,6 +108,7 @@ for episode in range(config.ddpg_num_episodes):
 
 # 保存训练数据
 exp_manager.save_history(history)
+exp_manager.save_image(history)
 
 # 保存模型
 if config.algo == "ddpg":

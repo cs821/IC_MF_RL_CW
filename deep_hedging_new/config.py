@@ -3,8 +3,8 @@ import torch
 class Config:
     def __init__(self):
         # 选择算法: "ddpg","sac" 或 "qlearning" 【qlearning没改，只调ddpg和sac的参】
-        self.algo = "sac"  # "ddpg" /"sac" /"qlearning"
-        self.sabr_flag = True #要不要用sabr，请每次调参务必记得修改！
+        self.algo = "ddpg"  # "ddpg" /"sac" /"qlearning"
+        self.sabr_flag = False #要不要用sabr，请每次调参务必记得修改！
         #厌恶系数
         self.ra_c = 1.5
         # 训练参数
@@ -18,13 +18,13 @@ class Config:
         self.q_epsilon_min = 0.01  
 
         # DDPG 参数
-        self.ddpg_num_episodes = 20  
+        self.ddpg_num_episodes = 50
         self.ddpg_batch_size = 128  
         self.ddpg_seed = 20021114  
         self.ddpg_gamma = 0.99
         self.ddpg_buffer_size = int(2e6)  # 增加缓冲区大小
         self.ddpg_tau = 0.001  # 更小的 tau 让目标网络更新更平稳
-        self.ddpg_actor_lr = 3e-4  
+        self.ddpg_actor_lr = 1e-4  
         self.ddpg_critic_lr = 3e-4  
         self.ddpg_epsilon_decay = 0.995  # 衰减率
         self.ddpg_epsilon_min = 0.1     # 最小探索率

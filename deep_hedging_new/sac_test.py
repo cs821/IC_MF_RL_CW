@@ -36,5 +36,5 @@ if __name__ == "__main__":
     test_env.seed(sacconfig.sac_seed)
     test_agent = SAC(sacconfig, test_env)
     #输入你想用的模型路径 ↓
-    test_agent.load("./sac_experiments/sabr/sac_2025-03-07_03-20-18/sac_final.pth")
+    test_agent.load("./sac_experiments/br/sac_2025-03-07_16-55-11/sac_final.pth")
     test_agent.test(num_episodes=num_test_episodes,delta_action_test = delta_action,bartlett_action_test = bartlett_action)

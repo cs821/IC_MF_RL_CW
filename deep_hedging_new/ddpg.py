@@ -110,6 +110,7 @@ class DDPG:
         current_q_ex, current_q_ex2 = self.critic(obs, action)
         td_error_ex = target_q_ex - current_q_ex
         td_error_ex2 = target_q_ex2 - current_q_ex2
+
         
         loss_ex = (weights * td_error_ex.pow(2)).mean()
         loss_ex2 = (weights * td_error_ex2.pow(2)).mean()
@@ -117,6 +118,8 @@ class DDPG:
 
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
+        total_critic_grad_norm = torch.nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=10.0)
+        #print(f"Total Critic Grad Norm: {total_critic_grad_norm:.4f}")
         self.critic_optimizer.step()
 
         priorities = (td_error_ex.abs() + td_error_ex2.abs()).cpu().detach().numpy().flatten()
@@ -126,6 +129,8 @@ class DDPG:
 
         self.actor_optimizer.zero_grad()
         actor_loss.backward()
+        total_actor_grad_norm = torch.nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=10.0)
+        #print(f"Total Actor Grad Norm: {total_actor_grad_norm:.4f}")
 
         #for name, param in self.actor.named_parameters():
         #    print(f"Actor {name} grad norm: {param.grad.norm().item():.4f}")#检查梯度
@@ -140,4 +145,4 @@ class DDPG:
         for param, target_param in zip(self.critic.q_ex2_net.parameters(), self.target_critic.q_ex2_net.parameters()):
             target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
 
-        return loss_ex.item(), loss_ex2.item()
+        return loss_ex.item(), loss_ex2.item(),critic_loss.item(), total_actor_grad_norm.item(), total_critic_grad_norm.item(), actor_loss.item()
