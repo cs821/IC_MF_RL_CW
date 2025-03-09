@@ -10,3 +10,6 @@ requirements.txt给定了训练的环境，请记得参考。
 
 实现细节还挺多的，比如price有两种，一个是基于gbm的，一个是基于sabr的，包括delta源码也给出了两个算法，一个是普通的delta，一个是bartlett delta，论文应该是对比了这两种和rl练出来的策略的不同，如果你们觉得我理解的有问题也记得dd我。
 
+
+## Optuna
+跑跑试试
