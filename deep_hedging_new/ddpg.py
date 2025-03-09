@@ -104,10 +104,14 @@ class DDPG:
         with torch.no_grad():
             next_action = self.target_actor(next_obs)
             target_q_ex, target_q_ex2 = self.target_critic(next_obs, next_action)
+            target_critic1_mean = target_q_ex.mean()
+            target_critic2_mean = target_q_ex2.mean()
             target_q_ex = reward + self.gamma * (1 - done) * target_q_ex
             target_q_ex2 = reward + self.gamma * (1 - done) * target_q_ex2
 
         current_q_ex, current_q_ex2 = self.critic(obs, action)
+        critic1_mean = current_q_ex.mean()
+        critic2_mean = current_q_ex2.mean()
         td_error_ex = target_q_ex - current_q_ex
         td_error_ex2 = target_q_ex2 - current_q_ex2
 
@@ -145,4 +149,20 @@ class DDPG:
         for param, target_param in zip(self.critic.q_ex2_net.parameters(), self.target_critic.q_ex2_net.parameters()):
             target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
 
-        return loss_ex.item(), loss_ex2.item(),critic_loss.item(), total_actor_grad_norm.item(), total_critic_grad_norm.item(), actor_loss.item()
+        info = {
+            "critic1_mean": critic1_mean.item(), 
+            "critic2_mean": critic2_mean.item(), 
+            "target_critic1_mean": target_critic1_mean.item(), 
+            "target_critic2_mean": target_critic2_mean.item(), 
+            "critic1_loss": loss_ex.item(), 
+            "critic2_loss": loss_ex2.item(),
+            "critic_loss": critic_loss.item(), 
+            "abs_td_loss1": td_error_ex.abs().mean().item(),
+            "abs_td_loss2": td_error_ex2.abs().mean().item(),
+            "total_actor_grad_norm": total_actor_grad_norm.item(), 
+            "total_critic_grad_norm": total_critic_grad_norm.item(), 
+            "actor_loss": actor_loss.item(),
+            "epsilon": self.epsilon,
+        }
+
+        return info

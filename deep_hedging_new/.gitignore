@@ -2,3 +2,5 @@
 *.pth
 *.csv
 *.md
+wandb/
+*_experiments/

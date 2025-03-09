@@ -7,7 +7,7 @@ from ddpg import DDPG
 from q_learning import QLearning
 from config import Config
 from experimentmanager import ExperimentManager
-
+import wandb
 # 读取配置
 config = Config()
 
@@ -21,6 +21,8 @@ def set_seed(seed):
 
 set_seed(config.ddpg_seed)
 
+unique_name = 'test' # this is the name for this run in wandb, can be set to whatever you want 
+wandb.init(project="deep_hedging", config=config, name = "test")
 # 创建环境
 env = TradingEnv(continuous_action_flag=True, sabr_flag=config.sabr_flag, spread=0.01, num_contract=1, init_ttm=20, trade_freq=1, num_sim=500000)
 env.seed(config.ddpg_seed)
@@ -36,7 +38,7 @@ else:
 # 训练超参数
 global_step = 0
 exp_manager = ExperimentManager(config)
-history = {"episode": [], "episode_w_T": [], "loss_ex": [], "loss_ex2": [], "critic_loss":[], "actor_grad_norm":[],"critic_grad_norm":[],"actor_loss":[]}
+history = {"episode": [], "episode_w_T": []}
 w_T_store = []
 
 print("\n\n*** 开始训练 ***")
@@ -56,9 +58,9 @@ for episode in range(config.ddpg_num_episodes):
         else:
             agent.replay_buffer.add(obs, action, reward, next_obs, done)
             if len(agent.replay_buffer) > config.ddpg_batch_size:
-                loss_ex, loss_ex2,critic_loss, total_actor_grad_norm, total_critic_grad_norm, actor_loss  = agent.update(config.ddpg_batch_size, global_step)
+                agent_info  = agent.update(config.ddpg_batch_size, global_step)
             else:
-                loss_ex, loss_ex2,critic_loss, total_actor_grad_norm, total_critic_grad_norm, actor_loss= 0.0, 0.0,0.0,0.0,0.0,0.0  # 经验池不足时，loss 设为 0
+                agent_info = {}
 
         obs = next_obs
         episode_reward += reward
@@ -73,12 +75,14 @@ for episode in range(config.ddpg_num_episodes):
     # 记录训练历史
     history["episode"].append(episode)
     history["episode_w_T"].append(episode_reward)
-    history["loss_ex"].append(loss_ex)
-    history["loss_ex2"].append(loss_ex2)
-    history["critic_loss"].append(critic_loss)
-    history["actor_grad_norm"].append(total_actor_grad_norm)
-    history["critic_grad_norm"].append(total_critic_grad_norm)
-    history["actor_loss"].append(actor_loss)
+    wandb.log({"Episode": episode,"env_steps": global_step,})
+    wandb.log({"Episode_Return": episode_reward,"env_steps": global_step,})
+    for k, v in agent_info.items():
+        if k in history.keys():
+            history[k].append(v)
+        else:
+            history[k] = [v]
+        wandb.log({k: v,"env_steps": global_step,})
 
     # **每 1000 轮保存一次***每 1000 轮保存一次**
     if episode % 1000 == 0:
@@ -89,11 +93,17 @@ for episode in range(config.ddpg_num_episodes):
     # **源码输出部分**
     path_row = info["path_row"]
     print(info)
-    print(
-        "episode: {} | episode final wealth: {:.3f} | loss_ex: {:.3f} | loss_ex2: {:.3f} |critic_loss: {:.3f} |actor_grad_norm: {:.3f} | critic_grad_norm: {:.3f} | actor_loss: {:.3f} |  epsilon:{:.2f}".format(
-            episode, episode_reward, loss_ex, loss_ex2,critic_loss, total_actor_grad_norm, total_critic_grad_norm, actor_loss, getattr(agent, "epsilon", 0)
+    if len(agent_info.keys()) == 0:
+        eps = getattr(agent,"epsilon", 0)
+        print(
+            f"episode: {episode} | episode final wealth: {episode_reward:.3f} | epsilon:{eps:.2f}"
         )
-    )
+    else:
+        print(
+            "episode: {} | episode final wealth: {:.3f} | loss_ex: {:.3f} | loss_ex2: {:.3f} |critic_loss: {:.3f} |actor_grad_norm: {:.3f} | critic_grad_norm: {:.3f} | actor_loss: {:.3f} |  epsilon:{:.2f}".format(
+                episode, episode_reward, agent_info["critic1_loss"], agent_info["critic2_loss"],agent_info["critic_loss"], agent_info["total_actor_grad_norm"], agent_info["total_critic_grad_norm"], agent_info["actor_loss"], getattr(agent, "epsilon", 0)
+            )
+        )
 
     with np.printoptions(precision=2, suppress=True):
         print(f"episode: {episode} | rewards {np.array(reward_store)}")
@@ -120,3 +130,4 @@ elif config.algo == "qlearning":
     print("Q-learning 模型已保存！")
 
 print("\n*** 训练完成 ***")
+wandb.finish()
