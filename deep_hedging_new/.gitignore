@@ -1,6 +1,6 @@
 **/__pycache__/
 *.pth
 *.csv
-*.md
 wandb/
 *_experiments/
+README.md

@@ -26,6 +26,7 @@ class Actor(nn.Module):
 class Critic(nn.Module):
     def __init__(self, obs_dim, act_dim):
         super().__init__()
+        self.ra_c = config.ra_c  # 风险厌恶系数
         self.q_ex_net = nn.Sequential(
             nn.Linear(obs_dim + act_dim, 256), nn.ReLU(),
             nn.Linear(256, 256), nn.ReLU(),
@@ -40,7 +41,11 @@ class Critic(nn.Module):
     def forward(self, obs, act):
         q_ex = self.q_ex_net(torch.cat([obs, act], dim=-1))
         q_ex2 = self.q_ex2_net(torch.cat([obs, act], dim=-1))
-        return torch.min(q_ex, q_ex2)
+        
+        # 计算风险调整的 Q 值
+        q = q_ex - self.ra_c * torch.sqrt(torch.clamp(q_ex2 - q_ex ** 2, min=0.0))
+        
+        return q_ex, q_ex2, q
 
 class DDPG:
     def __init__(self, obs_dim, act_dim, act_limit, buffer_size=int(2e6), gamma=0.99, tau=0.00001, alpha=0.6, max_t=500, device='cpu'):
@@ -107,26 +112,32 @@ class DDPG:
 
         with torch.no_grad():
             next_action = self.target_actor(next_obs)
-            target_q = self.target_critic(next_obs, next_action)
-            target_critic_mean = target_q.mean()
-            target = reward + self.gamma * (1 - done) * target_q
+            #target_q = self.target_critic(next_obs, next_action)
+            #target_critic_mean = target_q.mean()
+            #target = reward + self.gamma * (1 - done) * target_q
+            target_q_ex, target_q_ex2, _ = self.target_critic(next_obs, next_action)
+            target_q_ex = reward + self.gamma * (1 - done) * target_q_ex
+            target_q_ex2 = reward ** 2 + (1 - done) * (2 * reward * target_q_ex + target_q_ex2)
 
-        current_q = self.critic(obs, action)
-        critic_mean = current_q.mean()
-        td_error = target - current_q
+        current_q_ex, current_q_ex2, _ = self.critic(obs, action)
+        td_error_ex = target_q_ex - current_q_ex
+        td_error_ex2 = target_q_ex2 - current_q_ex2
 
-        critic_loss = (weights * td_error.pow(2)).mean()
+        loss_ex = (weights * td_error_ex.pow(2)).mean()
+        loss_ex2 = (weights * td_error_ex2.pow(2)).mean()
+        critic_loss = loss_ex + loss_ex2
 
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
         total_critic_grad_norm = torch.nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=10.0)
-        #print(f"Total Critic Grad Norm: {total_critic_grad_norm:.4f}")
         self.critic_optimizer.step()
 
-        priorities = (td_error.abs()).cpu().detach().numpy().flatten()
+        #priorities = (td_error.abs()).cpu().detach().numpy().flatten()
+        #self.replay_buffer.update_priorities(idxes, priorities)
+        priorities = np.abs(td_error_ex2.cpu().detach().numpy().flatten()) + 1e-6
         self.replay_buffer.update_priorities(idxes, priorities)
 
-        actor_loss = -self.critic(obs, self.actor(obs)).mean()
+        actor_loss = -self.critic(obs, self.actor(obs))[2].mean()#用q
 
         self.actor_optimizer.zero_grad()
         actor_loss.backward()
@@ -141,20 +152,20 @@ class DDPG:
         
         for param, target_param in zip(self.actor.parameters(), self.target_actor.parameters()):
             target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
-        for param, target_param in zip(self.critic.q_ex_net.parameters(), self.target_critic.q_ex_net.parameters()):
-            target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
-        for param, target_param in zip(self.critic.q_ex2_net.parameters(), self.target_critic.q_ex2_net.parameters()):
+        for param, target_param in zip(self.critic.parameters(), self.target_critic.parameters()):
             target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
 
         info = {
-            "critic_mean": critic_mean.item(), 
-            "target_critic_mean": target_critic_mean.item(), 
+            "critic1_mean": current_q_ex.mean().item(),
+            "critic2_mean": current_q_ex2.mean().item(),
+            "target_critic1_mean": target_q_ex.mean().item(),
+            "target_critic2_mean": target_q_ex2.mean().item(),
             "critic_loss": critic_loss.item(), 
-            "abs_td_loss": td_error.abs().mean().item(),
+            "abs_td_loss1": td_error_ex.abs().mean().item(),
+            "abs_td_loss2": td_error_ex2.abs().mean().item(),
             "total_actor_grad_norm": total_actor_grad_norm.item(), 
             "total_critic_grad_norm": total_critic_grad_norm.item(), 
             "actor_loss": actor_loss.item(),
             "epsilon": self.epsilon,
         }
-
         return info

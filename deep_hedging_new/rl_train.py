@@ -85,7 +85,7 @@ for episode in range(config.ddpg_num_episodes):
     w_T_store.append(episode_reward)
 
     # 记录训练历史
-    if episode % 50 == 0:
+    if episode % 1 == 0:
         if len(agent_info.keys()) > 0:
             history["episode"].append(episode)
             history["episode_w_T"].append(episode_reward)

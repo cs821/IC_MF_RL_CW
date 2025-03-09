@@ -18,7 +18,7 @@ class Config:
         self.q_epsilon_min = 0.01  
 
         # DDPG 参数
-        self.ddpg_num_episodes = 5000
+        self.ddpg_num_episodes = 30000
         self.ddpg_epsilon_decay_steps = 2500
         self.ddpg_batch_size = 128  
         self.ddpg_seed = 20021114  
@@ -27,8 +27,8 @@ class Config:
         self.ddpg_tau = 0.005  # 更小的 tau 让目标网络更新更平稳
         self.ddpg_actor_lr = 1e-4  
         self.ddpg_critic_lr = 3e-4  
-        self.ddpg_epsilon_decay = 0.99  # 衰减率
-        self.ddpg_epsilon_min = 0.05     # 最小探索率
+        self.ddpg_epsilon_decay = 0.99994  # 衰减率
+        self.ddpg_epsilon_min = 0.1     # 最小探索率
         self.prioritized_replay_beta_iters = 100000
         self.prioritized_replay_beta0 = 0.4
         self.ddpg_alpha=0.6
