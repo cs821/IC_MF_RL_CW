@@ -33,7 +33,7 @@ else:
 
 
 # ⬇这里手动修改路径，填入你要测试的模型 
-model_path = "./ddpg_experiments/sabr/ddpg_2025-03-07_16-50-00/ddpg_actor.pth" 
+model_path = "./ddpg_experiments/br/ddpg_2025-03-10_02-07-43/ddpg_actor.pth" 
 
 # 检查并加载模型
 if not os.path.exists(model_path):
@@ -46,11 +46,12 @@ elif config.algo == "qlearning":
 
 # 测试选项
 delta_action_test = False  # 是否使用 Delta 对冲策略
-bartlett_action_test = True  # 是否使用 Bartlett 对冲策略
-num_test_episodes = 10  # 设定测试 episode 数
+bartlett_action_test = False  # 是否使用 Bartlett 对冲策略
+num_test_episodes = 1000  # 设定测试 episode 数
 
 # 统计收益
 w_T_store = []
+cost_ratio = []
 
 print("\n\n*** 开始测试 ***")
 if delta_action_test:
@@ -66,6 +67,7 @@ for episode in range(num_test_episodes):
     reward_store = []
     action_store = []
     y_action = []  # 存储对冲动作
+    
 
     while not done:
         if delta_action_test:
@@ -80,13 +82,15 @@ for episode in range(num_test_episodes):
         y_action.append(action)  # 记录对冲动作
 
     # 计算最终收益
+    path_row = info["path_row"]
     w_T = sum(reward_store)
     w_T_store.append(w_T)
+    option_price = env.option_price_path[path_row, 0] * 100
+    cost_ratio.append(-w_T/option_price)
 
     if episode % 1000 == 0:
         w_T_mean = np.mean(w_T_store)
         w_T_var = np.var(w_T_store)
-        path_row = info["path_row"]
 
         print(info)
         print(
@@ -108,7 +112,10 @@ for episode in range(num_test_episodes):
 w_T_mean = np.mean(w_T_store)
 w_T_std = np.std(w_T_store) 
 y_0 = -w_T_mean + config.ra_c * w_T_std  
+cost_ratio_mean = np.mean(cost_ratio)
+cost_ratio_std = np.std(cost_ratio)
 
 print(f"\n*** 测试完成 ***")
-print(f"最终平均收益: {w_T_mean:.2f}, 标准差: {w_T_std:.2f}")
+print(f"最终平均成本: {-w_T_mean:.2f}, 标准差: {w_T_std:.2f}")
+print(f"最终平均成本/期权价格: {cost_ratio_mean:.2f}, 标准差: {cost_ratio_std:.2f}")
 print(f"优化目标 Y(0): {y_0:.2f}")
