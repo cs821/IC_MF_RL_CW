@@ -33,7 +33,7 @@ else:
 
 
 # ⬇这里手动修改路径，填入你要测试的模型 
-model_path = "./ddpg_experiments/br/ddpg_2025-03-10_02-07-43/ddpg_actor.pth" 
+model_path = "./ddpg_experiments/br/ddpg_2025-03-11_02-30-50/ddpg_actor.pth" 
 
 # 检查并加载模型
 if not os.path.exists(model_path):
@@ -45,7 +45,7 @@ elif config.algo == "qlearning":
     agent.load(model_path)
 
 # 测试选项
-delta_action_test = False  # 是否使用 Delta 对冲策略
+delta_action_test = True  # 是否使用 Delta 对冲策略
 bartlett_action_test = False  # 是否使用 Bartlett 对冲策略
 num_test_episodes = 1000  # 设定测试 episode 数
 

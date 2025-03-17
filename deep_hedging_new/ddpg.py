@@ -117,7 +117,8 @@ class DDPG:
             #target = reward + self.gamma * (1 - done) * target_q
             target_q_ex, target_q_ex2, _ = self.target_critic(next_obs, next_action)
             target_q_ex = reward + self.gamma*(1 - done) * target_q_ex
-            target_q_ex2 = reward ** 2 + self.gamma* (1 - done) * (2 * reward * target_q_ex + target_q_ex2)
+            #target_q_ex2 = reward ** 2 + self.gamma* (1 - done) * (2 * reward * target_q_ex + target_q_ex2) #1
+            target_q_ex2 = reward ** 2 + self.gamma* (1-done)*(2*reward*target_q_ex) + self.gamma**2 *(1-done)* target_q_ex2 #2
             #target_q_ex2 = torch.clamp(target_q_ex2, min=-1e6, max=1e6)
 
         current_q_ex, current_q_ex2, _ = self.critic(obs, action)

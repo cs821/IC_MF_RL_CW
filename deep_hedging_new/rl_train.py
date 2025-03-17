@@ -9,6 +9,7 @@ from q_learning import QLearning
 from config import Config
 from experimentmanager import ExperimentManager
 import wandb
+import time
 # 读取配置
 config = Config()
 
@@ -27,6 +28,7 @@ def get_args():
     args=parser.parse_args()
     return args
 
+time1 = time.time()
 args = get_args()
 config.ddpg_seed = args.seed
 
@@ -148,4 +150,8 @@ elif config.algo == "qlearning":
     print("Q-learning 模型已保存！")
 
 print("\n*** 训练完成 ***")
+time2 = time.time()
+elapsed_seconds = int(time2 - time1) # 转换为整数秒
+formatted_time = time.strftime("%H:%M:%S", time.gmtime(elapsed_seconds))
+print(f"总耗时: {formatted_time}")
 wandb.finish()
