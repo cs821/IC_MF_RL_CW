@@ -23,7 +23,6 @@ if __name__ == "__main__":
     bartlett_action = False
     num_test_episodes = 1000
 
-    # 测试
     if delta_action:
         print("\nTesting the Delta hedging strategy...")
     elif bartlett_action:
