@@ -19,7 +19,7 @@ def GBM_simulate(S0,mu,sigma,n_steps,n_paths,dt):
 #simulate BS Call option pricing formula and delta formula
 def BSM_call(S, K, T, r, sigma, q):
     set_seed()
-    epsilon = 1e-8  # 避免除零问题
+    epsilon = 1e-8  
     sigma_safe = np.maximum(sigma, epsilon)
     T_safe = np.maximum(T, epsilon)
 
@@ -48,12 +48,14 @@ def get_sim_path(tau,n_paths,freq):
 
     GBM_price = GBM_simulate(S0,mu,sigma,n_steps+1,n_paths,dt)
     new_t = np.arange(tau/T, -freq/T, -freq/T)
+    if new_t[-1] < 0:
+        new_t = new_t[:-1]
     BSCall_price, BSCall_delta,_ = BSM_call(GBM_price,K,new_t,r,sigma,q)
     print("Simulation Finished!")
     return GBM_price, BSCall_price, BSCall_delta
 
 
-#generate SABR (搞清楚什么是SABR，什么是bartlett对冲)
+#generate SABR
 def sabr_general_sim(num_paths, num_steps, initial_price, mu, initial_volatility, dt, correlation, vol_of_vol, beta):
     set_seed()
     # Generate correlated random shocks
@@ -87,7 +89,7 @@ def sabr_general_sim(num_paths, num_steps, initial_price, mu, initial_volatility
         )
     return asset_prices, volatilities
 
-#参考论文 Hagen et al (2002)
+#refer to Hagen et al (2002)
 def sabr_implied_volatility(initial_volatility, time_to_maturity, spot_price, strike_price,risk_free_rate, dividend_yield, beta, vol_of_vol, correlation):
     set_seed()
     # Compute forward price (F)
@@ -128,7 +130,7 @@ def sabr_implied_volatility(initial_volatility, time_to_maturity, spot_price, st
     )
     return implied_volatility
 
-#bartlett对冲
+#bartlett hedge
 def sabr_bartlett_delta(sigma, T, S, K, r, q, beta, vol_of_vol, rho):
     set_seed()
     # Compute implied volatility from SABR model
@@ -168,6 +170,8 @@ def get_sim_path_SABR(tau,n_paths,freq):
     print("1. Generate asset price paths (SABR)")
     SABR_price, SABR_vol = sabr_general_sim(n_paths, n_steps+1, S0, mu, sigma, dt, rho, vol_of_vol, beta)
     new_t = np.arange(tau/T, -freq/T, -freq/T)
+    if new_t[-1] < 0:
+        new_t = new_t[:-1]
     print("2. Generate BSCall price, BSCall delta and Bartlett delta")
     BSCall_price, BSCall_delta, Bartlett_delta = sabr_bartlett_delta(SABR_vol, new_t, SABR_price, K, r, q, beta, vol_of_vol, rho)
     print("Simulation Finished!")

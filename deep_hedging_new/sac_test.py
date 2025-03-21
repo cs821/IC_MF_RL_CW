@@ -25,16 +25,17 @@ if __name__ == "__main__":
 
     # 测试
     if delta_action:
-        print("\n开始测试 Delta 对冲策略...")
+        print("\nTesting the Delta hedging strategy...")
     elif bartlett_action:
-        print("\n开始测试 Bartlett 对冲策略...")
+        print("\nTesting the Bartlett hedging strategy...")
     else:
-        print(f"\n开始测试 {sacconfig.algo.upper()} 训练的智能体策略...")
+        print(f"\nTesting {sacconfig.algo.upper()} hedging strategy...")
     test_env = TradingEnv(
         continuous_action_flag=True, sabr_flag=sacconfig.sabr_flag, spread=0.01, num_contract=1, init_ttm=20, trade_freq=1, num_sim=500000  # 使用更少路径进行测试
     )
     test_env.seed(sacconfig.sac_seed)
     test_agent = SAC(sacconfig, test_env)
-    #输入你想用的模型路径 ↓
-    test_agent.load("./sac_experiments/br/sac_2025-03-16_21-09-48/checkpoints/sac_checkpoint.pth_ep26000.pth")
+    # change path to what you want
+    # test_agent.load("./sac_experiments/br/sac_2025-03-16_21-09-48/checkpoints/sac_checkpoint.pth_ep26000.pth")
+    test_agent.load("./sac_experiments/br/sac_2025-03-17_02-17-17/sac_final.pth")
     test_agent.test(num_episodes=num_test_episodes,delta_action_test = delta_action,bartlett_action_test = bartlett_action)

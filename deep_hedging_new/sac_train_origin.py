@@ -73,7 +73,7 @@ class Actor(nn.Module):
         y_t = torch.sigmoid(x_t)  # [0, 1]
         #print(f"mean:{mean}")
         #print(f"y_t:{y_t}")
-        # 缩放到交易环境动作空间 [0, action_scale]
+        # Zoom to the trading environment action space [0, action_scale]
         action = y_t * self.action_scale
         log_prob = normal.log_prob(x_t)
         log_prob -= torch.log(self.action_scale * (1 - y_t.pow(2)) / 2 + 1e-6)
@@ -84,37 +84,25 @@ class SAC:
         self.cfg = config
         self.env = env
         
-        # 网络初始化
+        # initialization
         state_dim = 3  # price, position, ttm
         action_dim = self.env.action_space.shape[0]
         action_scale = self.env.action_space.high[0]
         
         self.actor = Actor(state_dim, action_dim, action_scale).to(config.device)
         
-        # Q1 网络：用于估计期望成本（均值），采用双网络结构
-        self.qf1_1 = SoftQNetwork(state_dim, action_dim).to(config.device)
-        self.qf1_2 = SoftQNetwork(state_dim, action_dim).to(config.device)
-        self.qf1_1_target = SoftQNetwork(state_dim, action_dim).to(config.device)
-        self.qf1_2_target = SoftQNetwork(state_dim, action_dim).to(config.device)
-        self.qf1_1_target.load_state_dict(self.qf1_1.state_dict())
-        self.qf1_2_target.load_state_dict(self.qf1_2.state_dict())
+        self.qf1 = SoftQNetwork(state_dim, action_dim).to(config.device)
+        self.qf2 = SoftQNetwork(state_dim, action_dim).to(config.device)
+        self.qf1_target = SoftQNetwork(state_dim, action_dim).to(config.device)
+        self.qf2_target = SoftQNetwork(state_dim, action_dim).to(config.device)
+        self.qf1_target.load_state_dict(self.qf1.state_dict())
+        self.qf2_target.load_state_dict(self.qf2.state_dict())
         
-        # Q2 网络：用于估计成本的二阶矩，采用双网络结构
-        self.qf2_1 = SoftQNetwork(state_dim, action_dim).to(config.device)
-        self.qf2_2 = SoftQNetwork(state_dim, action_dim).to(config.device)
-        self.qf2_1_target = SoftQNetwork(state_dim, action_dim).to(config.device)
-        self.qf2_2_target = SoftQNetwork(state_dim, action_dim).to(config.device)
-        self.qf2_1_target.load_state_dict(self.qf2_1.state_dict())
-        self.qf2_2_target.load_state_dict(self.qf2_2.state_dict())
-        
-        # 优化器：更新所有 critic 网络参数
-        self.q_optimizer = optim.Adam(
-            list(self.qf1_1.parameters()) + list(self.qf1_2.parameters()) +
-            list(self.qf2_1.parameters()) + list(self.qf2_2.parameters()),
-            lr=config.sac_learning_rate)
+        # Optimizer: Updates all critic network parameters
+        self.q_optimizer = optim.Adam(list(self.qf1.parameters()) + list(self.qf2.parameters()), lr=config.sac_learning_rate)
         self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=config.sac_learning_rate)
-        
-        # 自动熵调节
+
+        # Automatic entropy regulation
         if config.sac_autotune:
             self.target_entropy = -action_dim
             self.log_alpha = torch.zeros(1, requires_grad=True, device=config.device)
@@ -123,7 +111,6 @@ class SAC:
         else:
             self.alpha = config.sac_alpha
         
-        # 经验回放
         self.rb = ReplayBuffer(
             config.sac_buffer_size,
             env.observation_space,
@@ -132,7 +119,7 @@ class SAC:
             handle_timeout_termination=False,
         )
         
-    def train(self):
+    def train(self,exp_manager):
         set_seed(self.cfg.sac_seed)
         history = {"episode": [], "episode_w_T": [], "q_loss": []}
         w_T_store = []
@@ -148,12 +135,12 @@ class SAC:
         reward_store = []
         action_store = []
         y_action = []
-        loss = 0.0  # 初始化 loss
+        loss = 0.0  
         episode = 0
     
         for global_step in range(self.cfg.sac_total_timesteps):
             set_seed(self.cfg.sac_seed)
-            # 动作选择
+            # choose action
             if global_step < self.cfg.sac_batch_size:
                 action = self.env.action_space.sample().item()
             else:
@@ -161,79 +148,54 @@ class SAC:
                     action_tensor, _, _ = self.actor.get_action(torch.Tensor(obs).to(self.cfg.device))
                     action = action_tensor.cpu().numpy().item()
             
-            # 环境交互
+            # Environment interaction
             next_obs, reward, done, info = self.env.step(action)
             self.rb.add(obs, next_obs, action, reward, done, info)
             
-            # 记录 reward & action
+            # record reward & action
             reward_store.append(reward)
             action_store.append(action)
             y_action.append(action)
 
-            # 更新观察
+            # update observations
             obs = next_obs
             episode_reward += reward
             episode_length += 1
             
-            # 训练逻辑
+            # training logic
             if global_step >= self.cfg.sac_batch_size:
                 set_seed(self.cfg.sac_seed)
                 data = self.rb.sample(self.cfg.sac_batch_size)
                 
-                # ----------------------- Critic 更新 -----------------------
+                # ----------------------- Critic update -----------------------
                 with torch.no_grad():
                     next_actions, next_log_pi, _ = self.actor.get_action(data.next_observations)
-                    # Q1 target：使用双 target 网络取最小值
-                    qf1_next_target_1 = self.qf1_1_target(data.next_observations, next_actions)
-                    qf1_next_target_2 = self.qf1_2_target(data.next_observations, next_actions)
-                    min_qf1_next_target = torch.min(qf1_next_target_1, qf1_next_target_2)
-                    
-                    # Q2 target：使用双 target 网络取最小值
-                    qf2_next_target_1 = self.qf2_1_target(data.next_observations, next_actions)
-                    qf2_next_target_2 = self.qf2_2_target(data.next_observations, next_actions)
-                    min_qf2_next_target = torch.min(qf2_next_target_1, qf2_next_target_2)
-                    
-                    next_q_ex = data.rewards.flatten() + (1 - data.dones.flatten()) * self.cfg.sac_gamma * (min_qf1_next_target.view(-1)-self.alpha * next_log_pi)
-                    next_q_ex2 = data.rewards.flatten() ** 2 + 2*self.cfg.sac_gamma * (1 - data.dones.flatten())*(data.rewards.flatten()*self.alpha * next_log_pi) + 2 * self.cfg.sac_gamma * (1 - data.dones.flatten()) * (
-                        data.rewards.flatten() - self.cfg.sac_gamma*self.alpha * next_log_pi)*min_qf1_next_target.view(-1) + self.cfg.sac_gamma**2 * min_qf2_next_target.view(-1)
-                
-                # 当前 Q 值计算：对每个网络分别计算损失，并求和
-                qf1_a_values_1 = self.qf1_1(data.observations, data.actions).view(-1)
-                qf1_a_values_2 = self.qf1_2(data.observations, data.actions).view(-1)
-                qf1_loss = F.mse_loss(qf1_a_values_1, next_q_ex) + F.mse_loss(qf1_a_values_2, next_q_ex)
+                    qf1_next_target = self.qf1_target(data.next_observations, next_actions)
+                    qf2_next_target = self.qf2_target(data.next_observations, next_actions)
+                    min_qf1_next_target = torch.min(qf1_next_target, qf2_next_target) - self.alpha * next_log_pi
+                    next_q_ex = data.rewards.flatten() + (1 - data.dones.flatten()) * self.cfg.sac_gamma * min_qf1_next_target.view(-1)
 
-                qf2_a_values_1 = self.qf2_1(data.observations, data.actions).view(-1)
-                qf2_a_values_2 = self.qf2_2(data.observations, data.actions).view(-1)
-                qf2_loss = F.mse_loss(qf2_a_values_1, next_q_ex2) + F.mse_loss(qf2_a_values_2, next_q_ex2)
+                qf1_a_values = self.qf1(data.observations, data.actions).view(-1)
+                qf2_a_values = self.qf2(data.observations, data.actions).view(-1)
+                qf_loss = F.mse_loss(qf1_a_values, next_q_ex) + F.mse_loss(qf2_a_values, next_q_ex)
 
-                qf_loss = qf1_loss + qf2_loss
-                loss = qf_loss.item()  # 记录 loss
+                loss = qf_loss.item()  # record loss
                 wandb.log({"q_loss": loss,"env_steps": global_step,})
 
                 self.q_optimizer.zero_grad()
                 qf_loss.backward()
                 self.q_optimizer.step()
 
-                # ----------------------- Actor 更新 -----------------------
+                # ----------------------- Actor update -----------------------
                 if global_step % self.cfg.sac_policy_frequency == 0:
                     set_seed(self.cfg.sac_seed)
                     for _ in range(self.cfg.sac_policy_frequency):
                         set_seed(self.cfg.sac_seed)
                         pi, log_pi, _ = self.actor.get_action(data.observations)
-                        # Q1 估计：取两个网络中较小的输出
-                        qf1_pi_1 = self.qf1_1(data.observations, pi)
-                        qf1_pi_2 = self.qf1_2(data.observations, pi)
-                        min_qf1_pi = torch.min(qf1_pi_1, qf1_pi_2)
-                        # Q2 估计：取两个网络中较小的输出
-                        qf2_pi_1 = self.qf2_1(data.observations, pi)
-                        qf2_pi_2 = self.qf2_2(data.observations, pi)
-                        min_qf2_pi = torch.min(qf2_pi_1, qf2_pi_2)
-                        
-                        var_ct = torch.clamp(min_qf2_pi - min_qf1_pi ** 2, min=0)
-                        weighted_mean = self.cfg.mean_weight * min_qf1_pi
-                        weighted_variance = self.cfg.variance_weight * torch.sqrt(var_ct + 1e-6)
-                        risk_adjusted_q = weighted_mean - weighted_variance
-                        actor_loss = ((self.alpha * log_pi) - risk_adjusted_q).mean()
+                        qf1_pi = self.qf1(data.observations, pi)
+                        qf2_pi = self.qf2(data.observations, pi)
+                        min_qf_pi = torch.min(qf1_pi, qf2_pi)
+                        actor_loss = ((self.alpha * log_pi) - min_qf_pi).mean()
                         wandb.log({"actor_loss": actor_loss,"env_steps": global_step,})
                         
                         self.actor_optimizer.zero_grad()
@@ -250,44 +212,32 @@ class SAC:
                             self.a_optimizer.step()
                             self.alpha = self.log_alpha.exp().item()
                 
-                # ----------------------- 目标网络更新 -----------------------
+                # ----------------------- Target network update -----------------------
                 if global_step % self.cfg.sac_target_network_frequency == 0:
                     set_seed(self.cfg.sac_seed)
-                    # 更新 Q1 target 网络
-                    for param, target_param in zip(self.qf1_1.parameters(), self.qf1_1_target.parameters()):
+                    for param, target_param in zip(self.qf1.parameters(), self.qf1_target.parameters()):
                         set_seed(self.cfg.sac_seed)
                         target_param.data.copy_(self.cfg.sac_tau * param.data + (1 - self.cfg.sac_tau) * target_param.data)
-                    for param, target_param in zip(self.qf1_2.parameters(), self.qf1_2_target.parameters()):
-                        set_seed(self.cfg.sac_seed)
-                        target_param.data.copy_(self.cfg.sac_tau * param.data + (1 - self.cfg.sac_tau) * target_param.data)
-                    # 更新 Q2 target 网络
-                    for param, target_param in zip(self.qf2_1.parameters(), self.qf2_1_target.parameters()):
-                        set_seed(self.cfg.sac_seed)
-                        target_param.data.copy_(self.cfg.sac_tau * param.data + (1 - self.cfg.sac_tau) * target_param.data)
-                    for param, target_param in zip(self.qf2_2.parameters(), self.qf2_2_target.parameters()):
+                    for param, target_param in zip(self.qf2.parameters(), self.qf2_target.parameters()):
                         set_seed(self.cfg.sac_seed)
                         target_param.data.copy_(self.cfg.sac_tau * param.data + (1 - self.cfg.sac_tau) * target_param.data)
 
-            # 日志记录
             if done:
                 set_seed(self.cfg.sac_seed)
                 writer.add_scalar("charts/episodic_return", episode_reward, global_step)
                 writer.add_scalar("charts/episodic_length", episode_length, global_step)
 
-                # 计算最终财富 w_T
+                # calculate final wealth w_T (negative reward)
                 w_T_store.append(episode_reward)
 
-                # 记录训练历史
+                # record training history
                 history["episode"].append(global_step)
                 history["episode_w_T"].append(episode_reward)
                 history["q_loss"].append(loss)
                 #history["actor_loss"].append(actor_loss)
 
-                # 记录训练历史
                 if global_step % 1 == 0:
                     wandb.log({"Episode_Return": episode_reward,"env_steps": global_step,})
-
-                    # 打印与 DDPG 一致的输出,可以加if按不同episode打印
                     path_row = info["path_row"]
                     print(info)
                     print(f"global_step: {global_step} | episode final wealth: {episode_reward:.3f} | q_loss: {loss:.3f}")
@@ -307,24 +257,22 @@ class SAC:
                 done = False
                 episode += 1
             
-            # 定期保存模型
+            # save model every 1000 global_step
             if global_step % 1000 == 0:
                 exp_manager.save_checkpoint({"actor": self.actor.state_dict(),
-                                            "qf1_1": self.qf1_1.state_dict(),
-                                            "qf1_2": self.qf1_2.state_dict(),
-                                            "qf2_1": self.qf2_1.state_dict(),
-                                            "qf2_2": self.qf2_2.state_dict(),
+                                            "qf1": self.qf1.state_dict(),
+                                            "qf2": self.qf2.state_dict(),
                                             "log_alpha": self.log_alpha if self.cfg.sac_autotune else None,
                                             }, f"sac_checkpoint.pth", global_step)
                                                     
-        # 保存训练历史
+        # save training history
         exp_manager.save_history(history)
         writer.close()
         wandb.finish()
     
     def test(self, num_episodes=1000,delta_action_test = False,bartlett_action_test = False):
         set_seed(self.cfg.sac_seed)
-        """测试训练好的策略"""
+        """Test the trained strategy"""
         total_rewards = []
         w_T_store = []
         cost_ratio = []
@@ -333,7 +281,7 @@ class SAC:
             obs = self.env.reset()
             episode_reward = 0
             done = False
-            reward_store = []  # 每次episode重置
+            reward_store = []  
             action_store = []
             y_action = []
 
@@ -352,17 +300,15 @@ class SAC:
                 action_store.append(action)
                 y_action.append(action)
 
-            # 计算最终财富 w_T
             path_row = info["path_row"]
             w_T = sum(reward_store).item()
             w_T_store.append(w_T)
             option_price = self.env.option_price_path[path_row, 0] * 100
             cost_ratio.append(-w_T/option_price)
 
-            if global_step% 100 == 0:#可以调整输出频率
+            if global_step% 100 == 0:# can adjust to what you want
                 w_T_mean = np.mean(w_T_store)
                 w_T_var = np.var(w_T_store)
-                # 打印与 DDPG 一致的输出
                 print(info)
                 print(f"episode: {global_step} | episode final wealth: {w_T:.3f} | welath_mean: {w_T_mean:.3f} | wealth_var: {w_T_var:.3f}")
                 with np.printoptions(precision=2, suppress=True):
@@ -379,36 +325,24 @@ class SAC:
         std_reward = np.std(w_T_store)
         y_0 = -mean_reward + self.cfg.ra_c * std_reward  
         cost_ratio_mean = np.mean(cost_ratio)
-        cost_ratio_std = np.std(cost_ratio)
-
-        print(f"测试结果 ({num_episodes} episodes):")
-        print(f"最终平均成本: {-mean_reward:.2f}, 标准差: {std_reward:.2f}")
-        print(f"最终平均成本/期权价格: {cost_ratio_mean:.2f}, 标准差: {cost_ratio_std:.2f}")
-        print(f"优化目标 Y(0): {y_0:.2f}")
-
-    '''
-    def save(self, path: str):
-        torch.save({
-            "actor": self.actor.state_dict(),
-            "qf1": self.qf1.state_dict(),
-            "qf2": self.qf2.state_dict(),
-            "log_alpha": self.log_alpha if self.cfg.sac_autotune else None,
-        }, path)
-    '''
+        cost_ratio_std = np.std(cost_ratio)\
+        
+        print(f"\n*** Testing Completed! ***")
+        print(f"Final average cost: {-mean_reward:.2f}, std: {std_reward:.2f}")
+        print(f"Final average cost/option price: {cost_ratio_mean:.2f}, std: {cost_ratio_std:.2f}")
+        print(f"Y(0): {y_0:.2f}")
 
     def load(self, path: str):
         checkpoint = torch.load(path)
         self.actor.load_state_dict(checkpoint["actor"])
-        self.qf1_1.load_state_dict(checkpoint["qf1_1"])
-        self.qf1_2.load_state_dict(checkpoint["qf1_2"])
-        self.qf2_1.load_state_dict(checkpoint["qf2_1"])
-        self.qf2_2.load_state_dict(checkpoint["qf2_2"])
+        self.qf1.load_state_dict(checkpoint["qf1"])
+        self.qf2.load_state_dict(checkpoint["qf2"])
         if self.cfg.sac_autotune and checkpoint["log_alpha"] is not None:
             self.log_alpha.data.copy_(checkpoint["log_alpha"])
 
 
 if __name__ == "__main__":
-    # 初始化配置和环境
+    # initialize config and environment
     sacconfig = Config()
     if sacconfig.algo != "sac":
         print("Please change the algorithm in Config!")
@@ -419,20 +353,18 @@ if __name__ == "__main__":
         continuous_action_flag=True, sabr_flag=sacconfig.sabr_flag, spread=0.01, num_contract=1, init_ttm=20, trade_freq=1, num_sim=500000
     )
     env.seed(sacconfig.sac_seed)
-    # 训练
+    # train
     agent = SAC(sacconfig, env)
-    print("开始训练...")
+    print("Training Begin...")
     time1 = time.time()
-    agent.train()
+    agent.train(exp_manager)
     exp_manager.save_model({
         "actor": agent.actor.state_dict(),
-        "qf1_1": agent.qf1_1.state_dict(),
-        "qf1_2": agent.qf1_2.state_dict(),
-        "qf2_1": agent.qf2_1.state_dict(),
-        "qf2_2": agent.qf2_2.state_dict(),
+        "qf1": agent.qf1.state_dict(),
+        "qf2": agent.qf2.state_dict(),
         "log_alpha": agent.log_alpha if agent.cfg.sac_autotune else None,
     }, f"{sacconfig.algo}_final.pth")
     time2 = time.time()
-    elapsed_seconds = int(time2 - time1) # 转换为整数秒
+    elapsed_seconds = int(time2 - time1) 
     formatted_time = time.strftime("%H:%M:%S", time.gmtime(elapsed_seconds))
-    print(f"总耗时: {formatted_time}")
+    print(f"Total time cost: {formatted_time}")

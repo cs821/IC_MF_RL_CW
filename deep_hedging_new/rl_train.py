@@ -10,7 +10,7 @@ from config import Config
 from experimentmanager import ExperimentManager
 import wandb
 import time
-# 读取配置
+# load hyperparameters
 config = Config()
 
 def set_seed(seed):
@@ -22,10 +22,9 @@ def set_seed(seed):
     torch.backends.cudnn.benchmark = False 
 
 def get_args():
-    # you can use `python rl_train.py --seed <seed> to set seed as <seed>`
     parser = argparse.ArgumentParser()
-    parser.add_argument("--seed", default=0, type=int)
-    args=parser.parse_args()
+    parser.add_argument("--seed", default=config.ddpg_seed, type=int)
+    args = parser.parse_args()
     return args
 
 time1 = time.time()
@@ -34,60 +33,65 @@ config.ddpg_seed = args.seed
 
 set_seed(config.ddpg_seed)
 
-unique_name = 'test' # this is the name for this run in wandb, can be set to whatever you want 
+unique_name = f'sabr_{config.sabr_flag}_freq_{config.trade_freq}_test' 
 wandb.init(project="deep_hedging", config=config, name = unique_name)
-# 创建环境
-env = TradingEnv(continuous_action_flag=True, sabr_flag=config.sabr_flag, spread=0.01, num_contract=1, init_ttm=20, trade_freq=1, num_sim=500000)
+# initialize environment
+env = TradingEnv(continuous_action_flag=True, sabr_flag=config.sabr_flag, spread=0.01, num_contract=1, init_ttm=20, trade_freq=config.trade_freq, num_sim=500000)
 env.seed(config.ddpg_seed)
 
-# 选择算法
+# check algorithm 
 if config.algo == "ddpg":
     agent = DDPG(env.observation_space.shape[0], env.action_space.shape[0], env.action_space.high[0], 
                  config.ddpg_buffer_size, config.ddpg_tau, config.ddpg_alpha,
                  max_t=config.ddpg_epsilon_decay_steps,device=config.device)
-elif config.algo == "qlearning":
-    agent = QLearning(env, config)
 else:
-    raise ValueError("Invalid algorithm. Choose 'ddpg', 'sac' or 'qlearning'.")
+    raise ValueError("Invalid algorithm. Choose 'ddpg' or 'sac'.")
 
-# 训练超参数
+# train parameters
 global_step = 0
 exp_manager = ExperimentManager(config)
 history = {"episode": [], "episode_w_T": []}
 w_T_store = []
-print("\n\n*** 开始训练 ***")
-for episode in range(config.ddpg_num_episodes):
+print("\n\n*** Training Begin! ***")
+
+episode = 0  
+while episode < config.ddpg_num_episodes:
+    exit_flag = False
+
     obs = np.array(env.reset(), dtype=np.float32)
     done = False
     episode_reward = 0
     reward_store = []
     action_store = []
     y_action = []
-
     while not done:
         action = agent.act(obs)  
         next_obs, reward, done, info = env.step(action)
-        if config.algo == "qlearning":
-            agent.learn(obs, action, reward, next_obs, done)
+        agent.replay_buffer.add(obs, action, reward, next_obs, done)
+        if len(agent.replay_buffer) > config.ddpg_batch_size:
+            agent_info  = agent.update(config.ddpg_batch_size, global_step)
+            if agent_info is None:
+                exit_flag = True
+                break
         else:
-            agent.replay_buffer.add(obs, action, reward, next_obs, done)
-            if len(agent.replay_buffer) > config.ddpg_batch_size:
-                agent_info  = agent.update(config.ddpg_batch_size, global_step)
-            else:
-                agent_info = {}
-
+            agent_info = {}
         obs = next_obs
         episode_reward += reward
         reward_store.append(reward)
         action_store.append(action)
-        y_action.append(action)  # 记录智能体对冲的动作
+        y_action.append(action) 
         global_step += 1
 
-    # 计算财富
+    if exit_flag == True:
+        continue
+
+    episode += 1
+
+    # calculate wealth (negative reward)
     w_T_store.append(episode_reward)
 
-    # 记录训练历史
-    if episode % 1 == 0:
+    # track training history
+    if episode % 30 == 0:
         if len(agent_info.keys()) > 0:
             history["episode"].append(episode)
             history["episode_w_T"].append(episode_reward)
@@ -103,13 +107,13 @@ for episode in range(config.ddpg_num_episodes):
             wandb.log({"Episode": episode,"env_steps": global_step,})
             wandb.log({"Episode_Return": episode_reward,"env_steps": global_step,})
 
-    # **每 1000 轮保存一次***每 1000 轮保存一次**
+    # save model every 1000 episodes
     if episode % 1000 == 0:
         exp_manager.save_checkpoint(agent.actor.state_dict(), f"{config.algo}_actor", episode)
         exp_manager.save_checkpoint(agent.critic.q_ex_net.state_dict(), f"{config.algo}_critic_q_ex", episode)
         exp_manager.save_checkpoint(agent.critic.q_ex2_net.state_dict(), f"{config.algo}_critic_q_ex2", episode)
         print(f"Checkpoint saved at episode {episode}")
-    # **源码输出部分**
+
     if episode % 50 == 0:
         path_row = info["path_row"]
         print(info)
@@ -132,26 +136,24 @@ for episode in range(config.ddpg_num_episodes):
             print(f"episode: {episode} | stock price {env.path[path_row]}")
             print(f"episode: {episode} | option price {env.option_price_path[path_row] * 100}\n")
 
-    # Episode结束后更新epsilon
+    # update epsilon
     if isinstance(agent, DDPG):
         agent.update_epsilon()
 
-# 保存训练数据
+# save training history
 exp_manager.save_history(history)
 exp_manager.save_image(history)
 
-# 保存模型
-if config.algo == "ddpg":
-    exp_manager.save_model(agent.actor.state_dict(), f"{config.algo}_actor.pth")
-    exp_manager.save_model(agent.critic.q_ex_net.state_dict(), f"{config.algo}_critic_q_ex.pth")
-    exp_manager.save_model(agent.critic.q_ex2_net.state_dict(), f"{config.algo}_critic_q_ex2.pth")
-elif config.algo == "qlearning":
-    agent.save("qlearning_table.pkl")
-    print("Q-learning 模型已保存！")
+# save model
+exp_manager.save_model(agent.actor.state_dict(), f"{config.algo}_actor.pth")
+exp_manager.save_model(agent.critic.q_ex_net.state_dict(), f"{config.algo}_critic_q_ex.pth")
+exp_manager.save_model(agent.critic.q_ex2_net.state_dict(), f"{config.algo}_critic_q_ex2.pth")
+print("DDPG saved!")
+    
 
-print("\n*** 训练完成 ***")
+print("\n*** Traning Completed! ***")
 time2 = time.time()
-elapsed_seconds = int(time2 - time1) # 转换为整数秒
+elapsed_seconds = int(time2 - time1)
 formatted_time = time.strftime("%H:%M:%S", time.gmtime(elapsed_seconds))
-print(f"总耗时: {formatted_time}")
+print(f"Total Time cost: {formatted_time}")
 wandb.finish()

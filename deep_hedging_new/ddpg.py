@@ -6,27 +6,30 @@ from replay_buffer import PrioritizedReplayBuffer
 from schedules import LinearSchedule
 from config import Config
 
-# 读取配置
+# Load hyperparameter configuration
 config = Config()
 
+# Define Actor Network
 class Actor(nn.Module):
     def __init__(self, obs_dim, act_dim, act_limit):
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(obs_dim, 256), nn.ReLU(),
-            nn.LayerNorm(256),
+            nn.LayerNorm(256),# Normalize activations for stability
             nn.Linear(256, 256), nn.ReLU(),
-            nn.Linear(256, act_dim), nn.Sigmoid()
+            nn.Linear(256, act_dim), nn.Sigmoid() # Output normalized to (0, 1)
         )
         self.act_limit = act_limit
 
     def forward(self, obs):
-        return self.act_limit * self.net(obs)
+        return self.act_limit * self.net(obs) # Max action value (e.g. stock holdings)
 
+
+# Define Critic Network with risk-averse utility
 class Critic(nn.Module):
     def __init__(self, obs_dim, act_dim):
         super().__init__()
-        self.ra_c = config.ra_c  # 风险厌恶系数
+        self.ra_c = config.ra_c  # risk aversion coefficient
         self.q_ex_net = nn.Sequential(
             nn.Linear(obs_dim + act_dim, 256), nn.ReLU(),
             nn.Linear(256, 256), nn.ReLU(),
@@ -42,11 +45,13 @@ class Critic(nn.Module):
         q_ex = self.q_ex_net(torch.cat([obs, act], dim=-1))
         q_ex2 = self.q_ex2_net(torch.cat([obs, act], dim=-1))
         
-        # 计算风险调整的 Q 值
+        # calculate final Q (F in paper)
         q = q_ex - self.ra_c * torch.sqrt(torch.clamp(q_ex2 - q_ex ** 2, min=0.0))
         
         return q_ex, q_ex2, q
 
+
+# Define DDPG Agent
 class DDPG:
     def __init__(self, obs_dim, act_dim, act_limit, buffer_size=int(2e6), tau=0.00001, alpha=0.6, max_t=500, device='cpu'):
         
@@ -68,14 +73,13 @@ class DDPG:
                                        final_p=1.0)
         self.tau = tau
         self.gamma = config.ddpg_gamma
-        # 初始化参数
-        self.epsilon = 1.0  # 初始探索率
-        self.epsilon_decay = config.ddpg_epsilon_decay  # 衰减率
-        self.epsilon_min = config.ddpg_epsilon_min     # 最小探索率
+        self.epsilon = 1.0 #initial epsilon
+        self.epsilon_decay = config.ddpg_epsilon_decay  
+        self.epsilon_min = config.ddpg_epsilon_min   
         self.epsilon_decay_delta = (self.epsilon - self.epsilon_min) / max_t
 
     def update_epsilon(self):
-        """每Episode调用一次,衰减epsilon"""
+        """called once per Episode to attenuate epsilon"""
         self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
         # self.epsilon = max(self.epsilon_min, self.epsilon - self.epsilon_decay_delta)
     
@@ -84,18 +88,17 @@ class DDPG:
         obs is a list
         Return: an integer action 
         """
-        """修改后的动作选择逻辑"""
         if not isinstance(obs, torch.Tensor):
             obs = torch.FloatTensor(obs).to(self.device).unsqueeze(0)
         if not eval_mode and np.random.rand() < self.epsilon:
-            # 探索：在动作空间内随机采样
+            # Exploration: Random sampling in the action space
             action = np.random.uniform(
                 low=0, 
                 high=self.actor.act_limit
             )
             return action
         else:
-            # 利用：使用Actor网络输出
+            # exploitation: Use Actor network output
             action = self.actor(obs)
             return action.detach().cpu().numpy().item()
 
@@ -105,7 +108,7 @@ class DDPG:
         #print(obs.shape, reward.shape, action.shape, next_obs.shape, weights.shape)
         obs = torch.FloatTensor(obs).to(self.device)
         action = torch.FloatTensor(action).to(self.device).unsqueeze(1)
-        reward = torch.FloatTensor(reward).to(self.device).unsqueeze(1)  # 变成 (batch_size, 1)
+        reward = torch.FloatTensor(reward).to(self.device).unsqueeze(1)  
         next_obs = torch.FloatTensor(next_obs).to(self.device).view(batch_size, -1)
         done = torch.FloatTensor(done).to(self.device).unsqueeze(1)
         weights = torch.FloatTensor(weights).to(self.device).unsqueeze(1)
@@ -126,11 +129,12 @@ class DDPG:
         td_error_ex2 = target_q_ex2 - current_q_ex2
         if torch.isnan(td_error_ex2).any():
             print("NaN detected in td_error_ex2!")
-            print(f"target_q_ex2: {target_q_ex2}")
-            print(f"current_q_ex2: {current_q_ex2}")
+            return None
+            #print(f"target_q_ex2: {target_q_ex2}")
+            #print(f"current_q_ex2: {current_q_ex2}")
 
-            print("current_q_ex2 mean:", current_q_ex2.mean().item())
-            print("target_q_ex2 mean:", target_q_ex2.mean().item())
+            #print("current_q_ex2 mean:", current_q_ex2.mean().item())
+            #print("target_q_ex2 mean:", target_q_ex2.mean().item())
 
         loss_ex = (weights * td_error_ex.pow(2)).mean()
         loss_ex2 = (weights * td_error_ex2.pow(2)).mean()
@@ -156,7 +160,7 @@ class DDPG:
         #print(f"Total Actor Grad Norm: {total_actor_grad_norm:.4f}")
 
         #for name, param in self.actor.named_parameters():
-        #    print(f"Actor {name} grad norm: {param.grad.norm().item():.4f}")#检查梯度
+        #    print(f"Actor {name} grad norm: {param.grad.norm().item():.4f}")
 
         self.actor_optimizer.step()
 

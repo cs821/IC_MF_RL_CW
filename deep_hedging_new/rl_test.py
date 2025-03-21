@@ -7,7 +7,7 @@ from ddpg import DDPG
 from q_learning import QLearning
 from config import Config
 
-# 读取配置
+# load hyperparameters
 config = Config()
 
 def set_seed(seed):
@@ -19,54 +19,51 @@ def set_seed(seed):
     torch.backends.cudnn.benchmark = False  
 
 set_seed(config.sac_seed)
-# 创建测试环境
-env = TradingEnv(continuous_action_flag=True, sabr_flag=config.sabr_flag,spread=0.01, num_contract=1, init_ttm=20, trade_freq=1, num_sim=10000)
+# Initialize testing environment (the same as the training environment)
+env = TradingEnv(continuous_action_flag=True, sabr_flag=False,spread=0.01, num_contract=1, init_ttm=20, trade_freq=1, num_sim=10000)
 env.seed(config.sac_seed)
 
 # 选择算法
 if config.algo == "ddpg":
     agent = DDPG(env.observation_space.shape[0], env.action_space.shape[0], env.action_space.high[0], config.ddpg_buffer_size,config.ddpg_tau, config.ddpg_alpha)
-elif config.algo == "qlearning":
-    agent = QLearning(env, config)
 else:
-    raise ValueError("Invalid algorithm. Choose 'ddpg' or 'qlearning'.")
+    raise ValueError("Invalid algorithm. Choose 'ddpg'.")
 
 
-# ⬇这里手动修改路径，填入你要测试的模型 
-model_path = "./ddpg_experiments/br/ddpg_2025-03-11_02-30-50/ddpg_actor.pth" 
+# change path to what you want
+#model_path = "./ddpg_experiments/br/ddpg_freq_1_2025-03-18_16-16-34/ddpg_actor.pth" 
+model_path = "./ddpg_experiments/sabr/ddpg_2025-03-17_16-10-02/checkpoints/ddpg_actor_ep49000.pth" #49
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-# 检查并加载模型
+# check and load model
 if not os.path.exists(model_path):
-    raise FileNotFoundError(f"模型文件 '{model_path}' 未找到，请先训练模型！")
+    raise FileNotFoundError(f"No model file '{model_path}', please train model first!")
 
-if config.algo in ["ddpg", "sac"]:
-    agent.actor.load_state_dict(torch.load(model_path))
-elif config.algo == "qlearning":
-    agent.load(model_path)
+agent.actor.load_state_dict(torch.load(model_path, map_location=device))
 
-# 测试选项
-delta_action_test = True  # 是否使用 Delta 对冲策略
-bartlett_action_test = False  # 是否使用 Bartlett 对冲策略
-num_test_episodes = 1000  # 设定测试 episode 数
+# How to hedge?
+delta_action_test = False  # Whether to use Delta hedging strategy
+bartlett_action_test = False  # Whether to use Bartlett hedging strategy
+num_test_episodes = 1000  
 
-# 统计收益
+# results
 w_T_store = []
 cost_ratio = []
 
-print("\n\n*** 开始测试 ***")
+print("\n\n*** Testing Begin! ***")
 if delta_action_test:
-    print("正在测试 Delta 对冲策略...")
+    print("Testing the Delta hedging strategy...")
 elif bartlett_action_test:
-    print("正在测试 Bartlett 对冲策略...")
+    print("Testing the Bartlett hedging strategy...")
 else:
-    print(f"正在测试 {config.algo.upper()} 训练的智能体策略...")
+    print(f"Testing {config.algo.upper()} hedging strategy...")
 
 for episode in range(num_test_episodes):
     obs = env.reset()
     done = False
     reward_store = []
     action_store = []
-    y_action = []  # 存储对冲动作
+    y_action = [] 
     
 
     while not done:
@@ -75,13 +72,13 @@ for episode in range(num_test_episodes):
         elif bartlett_action_test:
             action = env.bartlett_delta_path[episode % env.num_path, env.t] * env.num_contract * 100
         else:
-            action = agent.act(obs, eval_mode=True)  # 采用模型策略
+            action = agent.act(obs, eval_mode=True) 
         obs, reward, done, info = env.step(action)
         reward_store.append(reward)
         action_store.append(action)
-        y_action.append(action)  # 记录对冲动作
+        y_action.append(action) 
 
-    # 计算最终收益
+    # print results
     path_row = info["path_row"]
     w_T = sum(reward_store)
     w_T_store.append(w_T)
@@ -108,14 +105,14 @@ for episode in range(num_test_episodes):
             print(f"episode: {episode} | option price {env.option_price_path[path_row] * 100}\n")
 
 
-# 计算最终统计值
+# calculate final results
 w_T_mean = np.mean(w_T_store)
 w_T_std = np.std(w_T_store) 
 y_0 = -w_T_mean + config.ra_c * w_T_std  
 cost_ratio_mean = np.mean(cost_ratio)
 cost_ratio_std = np.std(cost_ratio)
 
-print(f"\n*** 测试完成 ***")
-print(f"最终平均成本: {-w_T_mean:.2f}, 标准差: {w_T_std:.2f}")
-print(f"最终平均成本/期权价格: {cost_ratio_mean:.2f}, 标准差: {cost_ratio_std:.2f}")
-print(f"优化目标 Y(0): {y_0:.2f}")
+print(f"\n*** Testing Completed! ***")
+print(f"Final average cost: {-w_T_mean:.2f}, std: {w_T_std:.2f}")
+print(f"Final average cost/option price: {cost_ratio_mean:.2f}, std: {cost_ratio_std:.2f}")
+print(f"Y(0): {y_0:.2f}")
