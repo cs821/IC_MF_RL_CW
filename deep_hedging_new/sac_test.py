@@ -30,7 +30,7 @@ if __name__ == "__main__":
     else:
         print(f"\nTesting {sacconfig.algo.upper()} hedging strategy...")
     test_env = TradingEnv(
-        continuous_action_flag=True, sabr_flag=sacconfig.sabr_flag, spread=0.01, num_contract=1, init_ttm=20, trade_freq=1, num_sim=500000  # 使用更少路径进行测试
+        continuous_action_flag=True, sabr_flag=sacconfig.sabr_flag, spread=0.01, num_contract=1, init_ttm=20, trade_freq=1, num_sim=500000 
     )
     test_env.seed(sacconfig.sac_seed)
     test_agent = SAC(sacconfig, test_env)
