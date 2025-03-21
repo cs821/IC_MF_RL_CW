@@ -23,7 +23,6 @@ set_seed(config.sac_seed)
 env = TradingEnv(continuous_action_flag=True, sabr_flag=False,spread=0.01, num_contract=1, init_ttm=20, trade_freq=1, num_sim=10000)
 env.seed(config.sac_seed)
 
-# 选择算法
 if config.algo == "ddpg":
     agent = DDPG(env.observation_space.shape[0], env.action_space.shape[0], env.action_space.high[0], config.ddpg_buffer_size,config.ddpg_tau, config.ddpg_alpha)
 else:
