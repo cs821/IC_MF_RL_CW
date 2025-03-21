@@ -1,13 +1,28 @@
-# IC_MF_RL_CW
-MATH70120 Advanced Machine Learning Coursework
+# IC_MF_RL_CW: Deep Hedging with Reinforcement Learning
 
-## 中文说明（之后可删）：
-requirements.txt给定了训练的环境，请记得参考。
+This repository contains the code implementation for the **Advanced Machine Learning (MATH70120)** coursework, focusing on **Deep Hedging** using **Deep Deterministic Policy Gradient (DDPG)** and **Soft Actor-Critic (SAC)**.  
 
-代码主要分为三块，一块是环境（这一部分我沿用了源码并做了修改，包括envs，schedules，segment_tree, replay_buffer和utils五个文件），一块是算法及参数（除了复现ddpg，我添加了sac，q_learning本来想加但是它是离散策略可能不适用于我们的情况，你们如果愿意的话也可以实现试一下，因为yufei提了一嘴），一块是训练与测试（见train和test，sac算法与train放在一个文件里）。experimentmanager这个文件是用来管理实验过程的，运行后会把时间、参数、权重存在对应的文件夹里，你们跑一次就会明白了。
+The goal of this coursework is to explore reinforcement learning approaches for hedging financial derivatives. The implementation follows standard deep reinforcement learning frameworks and utilizes **DDPG** for deterministic policy optimization and **SAC** for entropy-regularized exploration. The code is designed to replicate and analyze the performance of these algorithms in hedging tasks, considering different market dynamics and transaction costs.  
 
-具体算法参数我放在config.py的文件里，但不一定全，比如你们也可以练模型的时候调整网络结构的参数（我并没有放在config里），具体训练多少次，多少次输出一次，你们也自己酌情调整，我应该有加备注。包括simulation price的部分，参数我是类似源码硬编码在文件里的，如果你们要调参，也可以考虑更改simulation的参数。有问题随时dd我。
+Certain components, such as the **environment setup and replay buffer**, take inspiration from [tdmdal/rl-hedge-2019](https://github.com/tdmdal/rl-hedge-2019), with necessary modifications for this coursework. The repository includes scripts for training, testing, and evaluating the models under different financial market conditions.  
 
-实现细节还挺多的，比如price有两种，一个是基于gbm的，一个是基于sabr的，包括delta源码也给出了两个算法，一个是普通的delta，一个是bartlett delta，论文应该是对比了这两种和rl练出来的策略的不同，如果你们觉得我理解的有问题也记得dd我。
+## 📂 Project Structure
 
-
+```bash
+deep_hedging_new/
+│── config.py               # Configuration file with hyperparameters
+│── ddpg.py                 # DDPG algorithm implementation
+│── sac_train_origin.py     # SAC algorithm training
+│── sac_test.py             # SAC model evaluation
+│── rl_train.py             # DDPG training script
+│── rl_test.py              # DDPG evaluation script
+│── envs.py                 # Hedging environment (based on rl-hedge-2019)
+│── schedules.py            # Scheduling utilities (based on rl-hedge-2019)
+│── replay_buffer.py        # Prioritized Experience Replay (based on rl-hedge-2019)
+│── segment_tree.py         # Data structure for replay buffer (based on rl-hedge-2019)
+│── utils.py                # Utility functions (based on rl-hedge-2019)
+│── experimentmanager.py    # Manages experiment data and logging
+│── gym_test.py             # Algorithm validation script
+│── requirements.txt        # Dependency list for setting up the environment
+└── .gitignore              # Git ignore file
+```
