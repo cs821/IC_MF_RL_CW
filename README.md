@@ -1,6 +1,6 @@
 # IC_MF_RL_CW: Deep Hedging with Reinforcement Learning
 
-This repository contains the code implementation for the **Advanced Machine Learning (MATH70120)** coursework, focusing on **Deep Hedging** using **Deep Deterministic Policy Gradient (DDPG)** and **Soft Actor-Critic (SAC)**.  
+This repository contains the code implementation for the **Advances in Machine Learning (MATH70120)** coursework, focusing on **Deep Hedging** using **Deep Deterministic Policy Gradient (DDPG)** and **Soft Actor-Critic (SAC)**.  
 
 The goal of this coursework is to explore reinforcement learning approaches for hedging financial derivatives. The implementation follows standard deep reinforcement learning frameworks and utilizes **DDPG** for deterministic policy optimization and **SAC** for entropy-regularized exploration. The code is designed to replicate and analyze the performance of these algorithms in hedging tasks, considering different market dynamics and transaction costs.  
 
